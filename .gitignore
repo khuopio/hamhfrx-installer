@@ -7,6 +7,24 @@
 hamhfrx.conf
 channels.conf
 
+# Scheduled-recording config — names a real remote host, account, and
+# path. Same treatment as the two files above.
+recordings.conf
+
+# SSH keys and known_hosts — the recording feature's keypair is
+# generated on the Pi (via 09-recording.sh) and lives under
+# /opt/hamhfrx1/.ssh/, structurally outside this repo already. These
+# patterns are defense in depth, not the primary protection — never
+# rely on .gitignore alone for key material; the key should simply
+# never exist inside a git-tracked directory in the first place.
+id_ed25519
+id_ed25519.pub
+id_rsa
+id_rsa.pub
+*.pem
+known_hosts
+.ssh/
+
 # SDRplay API installer — proprietary, licensed, not ours to redistribute
 downloads/
 

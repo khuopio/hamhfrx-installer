@@ -21,6 +21,13 @@ designed but not yet scripted (baresip).
   or the real hostname. `.gitignore` excludes both — do not remove that
   exclusion, do not add example versions with real-looking values, do
   not paste their contents into a commit message or code comment.
+- **Never commit `recordings.conf` or any SSH key material.** Same
+  treatment as above — `recordings.conf` names a real remote host and
+  path. The recording feature's SSH keypair (`09-recording.sh`) is
+  generated on the Pi itself, lives under `/opt/hamhfrx1/.ssh/`, and
+  must never be created on, or copied to, a development machine. Never
+  print the private key's contents in any log or commit message; the
+  public key is the only half ever meant to be displayed or shared.
 - **All documentation/example content must use the fictitious worked
   example (3600/7100/4700 kHz, `sdr-station-1` hostname), never real
   production values.** This was deliberately sanitized in v2.2 — don't
@@ -86,6 +93,18 @@ designed but not yet scripted (baresip).
 - `06-streaming.sh` actively removes services for mountpoints no longer
   in `channels.conf` — shrinking the channel list cleans up after
   itself.
+- `06-streaming.sh` captures from `dsnoop:`, not `hw:`, specifically so
+  a scheduled recording (`09-recording.sh`) can read the same channel's
+  loopback concurrently without conflicting with the always-on stream.
+  Do not revert this to `hw:` without checking whether recording is in
+  use — a raw `hw:` device only permits one reader at a time.
+- `09-recording.sh` retries any previously-failed transfer (leftover
+  `.mp3` files in its capture directory) before starting a new capture
+  each time it runs — mirrors the same "retry indefinitely, never
+  silently give up" philosophy as the streaming services'
+  `StartLimitIntervalSec=0`, just implemented at the script level
+  instead of via systemd's restart mechanism, since this is a scheduled
+  oneshot rather than a long-running service.
 - Everything runs under `/opt/hamhfrx1` (structural convention, not
   meant to change without an explicit, deliberate decision — see
   CHANGELOG v2.2 for the discussion of why this wasn't renamed during

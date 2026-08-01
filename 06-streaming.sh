@@ -46,7 +46,10 @@ for i in "${!CHAN_FREQ_KHZ[@]}"; do
     mount="${CHAN_MOUNT[$i]}"
     gain="${CHAN_GAIN_DB[$i]}"
     card="$(loopback_card_name "$pos")"
-    capture="hw:CARD=${card},DEV=1"
+    # dsnoop, not hw: — allows a second simultaneous reader (a scheduled
+    # recording via 09-recording.sh) to capture the same channel audio
+    # without conflicting with this always-on stream's own capture.
+    capture="dsnoop:CARD=${card},DEV=1"
     safe="$(sanitize "$mount")"
     unit="stream-${safe}"
     DESIRED_UNITS+=("$unit")

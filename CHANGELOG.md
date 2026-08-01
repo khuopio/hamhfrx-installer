@@ -1,5 +1,93 @@
 # Changelog
 
+## v2.5 — 2026
+
+**Bugfix: trailing comments on a data line silently corrupted the last
+field.** `channels.conf` and `recordings.conf` only ever safely supported
+whole-line comments (`#` as the first character of a line). A comment
+placed *after* real data on the same line — e.g.
+`3600 | LSB | ch1 | 10  # boosted, weak signal` — was not stripped; it
+got silently absorbed into the last field's value (`gain_db` becoming
+the literal string `10 # boosted, weak signal`), with no error at parse
+time. The failure only surfaced much later and far less clearly, when
+that garbage value reached `ffmpeg`'s `-af volume=...` filter at
+runtime.
+
+Fixed in both `lib/channels.sh` and `lib/recordings.sh`: comments are
+now stripped (everything from the first `#` to end of line) *before*
+field splitting, so whole-line and trailing comments both work safely
+and uniformly. Verified with a full regression suite: whole-line
+comments, indented comments, trailing comments on data lines, blank
+lines, comment-only files, and malformed lines all produce the correct
+behavior — either a clean parse or a clear, specific `die()` message,
+never silent corruption.
+
+Also added: an explicit error for a line with a missing/malformed
+frequency (or mountpoint, in `recordings.conf`) field, rather than the
+previous silent skip — a genuine typo now fails loudly with the exact
+offending line quoted, instead of just vanishing from the loaded
+channel list with no explanation.
+
+**Process note, disclosed for transparency:** while fixing this, the
+duplicate-mountpoint validation (added earlier, reviewed and tested
+correctly at the time) was found to be **missing** from `lib/channels.sh`
+in this package lineage — lost when v2.4 was branched from a local
+working copy that had drifted from the real, Claude-Code-patched v2.3 on
+GitHub. It has been restored and re-verified here. This is exactly the
+class of mistake the two-way sync workflow (§ install guide, git
+section) exists to catch — always review `git diff` before trusting a
+merge, in either direction.
+
+**Documentation:** the install guide now documents `recordings.conf`'s
+full format (§7, new section) and the comment syntax for both config
+files (§6.5) explicitly, including the "leave the file absent, not
+empty" guidance for stations not using the recording feature.
+
+## v2.4 — 2026
+
+**New feature: scheduled recording, pushed securely to a remote system.**
+
+- New `09-recording.sh` phase and `lib/recordings.sh` — captures a
+  configurable duration of any channel's audio to MP3 on a systemd-timer
+  schedule, then pushes it via `scp` to a remote host and deletes the
+  local copy only once delivery is confirmed.
+- New `recordings.conf` (gitignored, never committed — see below),
+  one line per scheduled recording: mountpoint, `OnCalendar` schedule,
+  duration, `user@host` target, remote path. Cross-validated against
+  `channels.conf` at load time — a typo'd or removed mountpoint fails
+  loudly before any systemd unit is built around it, not silently.
+- **Security design, specifically per this release's stated goal —
+  keep all key material out of git:**
+  - The SSH keypair is generated **on the Pi itself** by
+    `09-recording.sh`, never on a development machine, never touched by
+    git. Lives under `/opt/hamhfrx1/.ssh/`, structurally outside this
+    repository.
+  - `.gitignore` extended with `recordings.conf` and defensive
+    key/known_hosts filename patterns, as a second layer — not the
+    primary protection, which is that the key never exists inside a
+    git-tracked directory to begin with.
+  - Every `scp`/`ssh` call uses `BatchMode=yes`, so a broken or
+    not-yet-authorized key fails immediately with a clear error instead
+    of hanging indefinitely waiting for a password prompt that will
+    never come.
+  - Host key verification is never disabled. `ssh-keyscan` pins each
+    remote's host key once, explicitly, during setup —
+    `StrictHostKeyChecking` stays at its secure default for every real
+    transfer afterward.
+- **Resilience**, matching the same philosophy proved out by the
+  streaming services' real overnight outage: any failed transfer is
+  retried automatically on the *next* scheduled run, before that run's
+  new capture even starts — nothing is lost to a transient network or
+  remote-server outage, no manual intervention required. Verified with
+  mocked `scp` failure/success scenarios before release, not just
+  read for correctness.
+- `06-streaming.sh` changed to capture from `dsnoop:` instead of `hw:`
+  — a necessary prerequisite so a scheduled recording can read a
+  channel concurrently with its always-on live stream, which a raw
+  `hw:` device (single-reader only) would not have allowed.
+- `CLAUDE.md` is now bundled inside the package itself (previously
+  delivered standalone) and updated with the new rules above.
+
 ## v2.3 — 2026
 
 - Added `.gitattributes`, forcing LF line endings for `.sh`/`.md`/`.conf`

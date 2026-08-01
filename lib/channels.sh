@@ -21,10 +21,18 @@ load_channels() {
     CHAN_FREQ_KHZ=(); CHAN_MODE=(); CHAN_MOUNT=(); CHAN_GAIN_DB=()
     [ -f "$file" ] || die "Channels file not found: $file (run ./00-configure.sh, or create it by hand)"
 
-    while IFS='|' read -r freq mode mount gain; do
+    while IFS= read -r rawline || [ -n "$rawline" ]; do
+        # Strip everything from the first '#' to end of line — this
+        # handles a whole-line comment AND a trailing comment after real
+        # data on the same line, uniformly, before any field splitting
+        # happens. A line that's blank after stripping (whitespace-only,
+        # or fully commented) is skipped entirely.
+        line="${rawline%%#*}"
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+
+        IFS='|' read -r freq mode mount gain <<< "$line"
         freq="$(echo "$freq" | xargs)"
-        [ -z "$freq" ] && continue
-        [[ "$freq" == \#* ]] && continue
+        [ -z "$freq" ] && die "Malformed line in $file (no frequency): $rawline"
         mode="$(echo "$mode" | xargs | tr '[:lower:]' '[:upper:]')"
         mount="$(echo "$mount" | xargs)"
         gain="$(echo "$gain" | xargs)"
