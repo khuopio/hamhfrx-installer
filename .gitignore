@@ -1,0 +1,28 @@
+# Deployment-specific configuration — these contain your real hostname,
+# admin username, Icecast password, and channel/frequency list. They are
+# generated locally by ./00-configure.sh (or hand-written, as in a
+# migration). NEVER commit these. This is the actual safety mechanism,
+# not just a suggestion — git will refuse to stage these files by
+# default as long as this .gitignore is in place.
+hamhfrx.conf
+channels.conf
+
+# SDRplay API installer — proprietary, licensed, not ours to redistribute
+downloads/
+
+# SDRangel source clone + build artifacts — large, and regenerable by
+# running ./04-sdrangel-build.sh; doesn't belong in a script repo
+build/
+
+# Logs — may contain real frequencies, IPs, or other runtime specifics
+*.log
+/var/log/hamhfrx-installer.log
+
+# Anything explicitly marked local-only, if you ever add such a file
+*.local
+*.secret
+
+# Editor/OS noise
+.DS_Store
+*.swp
+*~

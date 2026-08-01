@@ -1,0 +1,15 @@
+# Force LF line endings for shell scripts and text files, regardless of
+# the platform doing the committing. This matters specifically because
+# this repo's scripts always execute on Linux (the Raspberry Pi), never
+# on whatever machine is used to edit/commit them — a CRLF-corrupted
+# .sh file fails or misbehaves under bash even though it looks fine in
+# a Windows editor.
+*.sh text eol=lf
+lib/*.sh text eol=lf
+*.md text eol=lf
+*.conf text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# PDFs are binary — never let git attempt any line-ending conversion
+*.pdf binary
