@@ -43,6 +43,17 @@ load_channels() {
     done < "$file"
 
     [ "${#CHAN_FREQ_KHZ[@]}" -ge 1 ] || die "No channels defined in $file"
+
+    # Each mountpoint becomes both an Icecast mount and a systemd service
+    # name (stream-<mountpoint>) — a duplicate would make one channel
+    # silently overwrite the other's stream/service with no error.
+    local -A seen_mounts
+    for mount in "${CHAN_MOUNT[@]}"; do
+        if [ -n "${seen_mounts[$mount]:-}" ]; then
+            die "Duplicate mountpoint '$mount' in $file — each channel needs a unique mountpoint."
+        fi
+        seen_mounts[$mount]=1
+    done
 }
 
 # ALSA loopback card naming as SDRangel/ALSA itself reports it: the first

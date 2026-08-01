@@ -14,9 +14,13 @@ run_once "id $SERVICE_USER &>/dev/null" \
         --shell /usr/sbin/nologin "$SERVICE_USER"
 
 step "Directory layout under $INSTALL_ROOT"
-sudo mkdir -p "$INSTALL_ROOT"/{bin,streaming,baresip-ch1,baresip-ch2,baresip-ch3}
+sudo mkdir -p "$INSTALL_ROOT"/{bin,streaming}
 sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_ROOT"
-ok "created bin/, streaming/, baresip-ch{1,2,3}/"
+ok "created bin/, streaming/"
+# baresip per-channel directories are NOT created here: baresip isn't
+# scripted yet (see CLAUDE.md), and per-channel dirs must follow
+# channels.conf's actual channel count/names, not a hardcoded ch1-3 set,
+# the same way phases 5/6 do. 08-baresip.sh should create its own when built.
 
 step "Group membership (USB + ALSA access — both required, see manual 6.4)"
 run_once "id -nG $SERVICE_USER | grep -qw plugdev" sudo usermod -aG plugdev "$SERVICE_USER"
