@@ -6,7 +6,7 @@ INSTALLER_LOG="${INSTALLER_LOG:-/var/log/hamhfrx-installer.log}"
 sudo touch "$INSTALLER_LOG" 2>/dev/null || true
 sudo chmod 644 "$INSTALLER_LOG" 2>/dev/null || true
 
-log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | sudo tee -a "$INSTALLER_LOG" >/dev/null; echo "$*"; }
+log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | sudo tee -a "$INSTALLER_LOG" >/dev/null; }
 step() { echo; echo "== $* =="; log "STEP: $*"; }
 ok()   { echo "   ok: $*"; log "OK: $*"; }
 skip() { echo "   skip (already done): $*"; log "SKIP: $*"; }

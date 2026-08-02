@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.6 — 2026
+
+**Bugfix: every phase script's terminal output was doubled.** `lib/common.sh`'s
+`log()` function wrote each message to the log file *and* echoed it to
+the terminal a second time, on top of `step()`/`ok()`/`skip()`/`warn()`/
+`die()` already printing their own nicely-formatted line before calling
+`log()` — so every single status line appeared twice, once formatted
+(`   ok: ...`) and once raw (`OK: ...`). Cosmetic only — it never
+affected idempotency, correctness, or what actually got written to
+`/var/log/hamhfrx-installer.log` — but genuinely noisy and worth fixing.
+`log()` now only writes to the log file. Verified: terminal output shows
+each message exactly once, log file still captures everything with
+timestamps, unchanged.
+
+No other functional changes in this release.
+
 ## v2.5 — 2026
 
 **Bugfix: trailing comments on a data line silently corrupted the last
