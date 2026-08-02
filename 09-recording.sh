@@ -130,6 +130,14 @@ for i in "${!REC_MOUNT[@]}"; do
         if [ "${CHAN_MOUNT[$j]}" = "$mount" ]; then pos=$((j + 1)); fi
     done
     card="$(loopback_card_name "$pos")"
+    # NOTE (as of v2.7): streaming (06-streaming.sh) now uses hw:
+    # (exclusive) instead of dsnoop, after dsnoop caused real production
+    # instability. This means a recording attempted while the matching
+    # channel's live stream is running will likely fail to acquire the
+    # device — hw:'s exclusive lock blocks dsnoop's shared access. Real
+    # concurrent operation needs a proper fan-out design; see CHANGELOG
+    # v2.7 and CLAUDE.md. Safe for now only when tested in isolation or
+    # against a channel with no active competing hw: reader.
     capture="dsnoop:CARD=${card},DEV=1"
 
     step "Recording schedule for $mount -> $target:$remote_path [$unit]"

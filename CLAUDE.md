@@ -93,11 +93,25 @@ designed but not yet scripted (baresip).
 - `06-streaming.sh` actively removes services for mountpoints no longer
   in `channels.conf` — shrinking the channel list cleans up after
   itself.
-- `06-streaming.sh` captures from `dsnoop:`, not `hw:`, specifically so
-  a scheduled recording (`09-recording.sh`) can read the same channel's
-  loopback concurrently without conflicting with the always-on stream.
-  Do not revert this to `hw:` without checking whether recording is in
-  use — a raw `hw:` device only permits one reader at a time.
+- `06-streaming.sh` captures from `hw:`, not `dsnoop:`. **This was
+  changed back and forth once already — read this before touching it
+  again.** v2.4 switched to `dsnoop:` so a scheduled recording could
+  share the capture device with the always-on stream. Once actually
+  deployed to production, `dsnoop` caused real, confirmed instability
+  ("Queue input is backward in time" / non-monotonic dts, across every
+  channel, not just the new one being tested at the time — confirmed by
+  exact timestamp correlation between the regression and when `dsnoop`
+  went live). Reverted to `hw:` in v2.7. **Consequence:** recording and
+  streaming cannot currently run concurrently on the same channel —
+  `09-recording.sh`'s `dsnoop` read will fail to acquire a device
+  already held exclusively by a live `hw:` stream. This needs a real
+  fan-out design (e.g. a single `hw:` reader per channel that itself
+  tees to both the Icecast push and an on-demand local recording sink)
+  before recording can be used while that channel is actively streamed.
+  Do not "fix" this by switching back to `dsnoop` without first proving
+  stability under real, sustained production load — a quiet workbench
+  test is not sufficient evidence, as this exact regression
+  demonstrated.
 - `09-recording.sh` retries any previously-failed transfer (leftover
   `.mp3` files in its capture directory) before starting a new capture
   each time it runs — mirrors the same "retry indefinitely, never

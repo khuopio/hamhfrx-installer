@@ -46,10 +46,22 @@ for i in "${!CHAN_FREQ_KHZ[@]}"; do
     mount="${CHAN_MOUNT[$i]}"
     gain="${CHAN_GAIN_DB[$i]}"
     card="$(loopback_card_name "$pos")"
-    # dsnoop, not hw: — allows a second simultaneous reader (a scheduled
-    # recording via 09-recording.sh) to capture the same channel audio
-    # without conflicting with this always-on stream's own capture.
-    capture="dsnoop:CARD=${card},DEV=1"
+    # hw:, not dsnoop: — reverted in v2.7. dsnoop was adopted in v2.4 to
+    # let a scheduled recording (09-recording.sh) share this capture
+    # device with the always-on stream, but caused real production
+    # instability once actually deployed: "Queue input is backward in
+    # time" / non-monotonic dts errors across EVERY channel, confirmed
+    # by exact timestamp correlation with when dsnoop went live — not
+    # specific to any one channel or mode. hw: is what ran reliably for
+    # days beforehand. Since recording was never actually in concurrent
+    # use, this reverts to the known-stable configuration.
+    #
+    # CONSEQUENCE: 09-recording.sh's dsnoop-based capture will now fail
+    # to acquire the device whenever a live stream already holds it via
+    # hw: (exclusive). Recording and streaming cannot run concurrently
+    # on the same channel until a proper fan-out is built — see
+    # CLAUDE.md and CHANGELOG v2.7 for the real fix this needs.
+    capture="hw:CARD=${card},DEV=1"
     safe="$(sanitize "$mount")"
     unit="stream-${safe}"
     DESIRED_UNITS+=("$unit")

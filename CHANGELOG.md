@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.7 — 2026
+
+**Production regression found and reverted: `dsnoop` capture caused
+stream instability across every channel.**
+
+v2.4 switched `06-streaming.sh`'s capture device from `hw:` to `dsnoop:`
+so a scheduled recording could read a channel concurrently with its
+live stream. This looked correct in isolated testing at the time, but
+once actually deployed to production it produced continuous
+`Queue input is backward in time` / non-monotonically-increasing-dts
+errors from `ffmpeg` — initially suspected to be AM-specific (a new AM
+channel was added the same session), but confirmed by direct testing to
+affect **every** channel, including SSB channels that had run reliably
+for days beforehand. Root cause confirmed by exact timestamp correlation
+between the regression's onset and the moment `06-streaming.sh` was
+re-run with the `dsnoop` change live.
+
+**Fix:** reverted `06-streaming.sh` to `hw:` (exclusive access) — the
+configuration proven stable over multiple days of real production
+operation, including surviving a genuine multi-hour Icecast outage
+cleanly.
+
+**Known consequence, not yet resolved:** recording and streaming can no
+longer run concurrently on the same channel — `09-recording.sh`'s
+`dsnoop`-based capture will fail to acquire a device already held
+exclusively by a live `hw:` stream. Since the recording feature has
+never actually been used in production, this is an acceptable trade
+for restoring stream reliability now. A real fix requires a proper
+single-reader fan-out design (e.g., one `hw:` process per channel that
+itself tees to both the Icecast push and an on-demand local recording
+sink) rather than relying on ALSA's `dsnoop` layer for real-time
+reliability — flagged as follow-up work in `CLAUDE.md`.
+
+**Process lesson, worth being direct about:** this shipped in v2.4
+without being tested against sustained real production load — only
+syntax and mocked control-flow were verified before release. That gap
+is exactly what let a real regression reach production. Any future
+change to a capture/audio-path detail should be soak-tested against a
+running channel before being considered safe, not just reviewed for
+correctness on paper.
+
 ## v2.6 — 2026
 
 **Bugfix: every phase script's terminal output was doubled.** `lib/common.sh`'s
