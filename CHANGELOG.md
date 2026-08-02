@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.1 — 2026
+
+**Documentation fix: `recordings.conf` documentation was stale
+(describing v2.x's live-capture semantics after v3.0 changed to a
+pull-from-buffer model), and there was no template file to start from.**
+
+- `hamhfrx-installer-guide.pdf` §5.7 and §7 rewritten to describe the
+  actual v3.0 architecture: `06-streaming.sh` feeds the ring buffer,
+  `09-recording.sh` pulls from it — not a live capture. `duration_min`
+  renamed `pull_minutes` in the documentation to make this unambiguous
+  (the file format itself is unchanged, this is a naming/description
+  fix, not a breaking change).
+- Added `recordings.conf.example` — a fully commented template with no
+  real data (safe to commit, unlike the real `recordings.conf`, which
+  stays gitignored). Verified it parses correctly through the real
+  parser once uncommented, not just reviewed for correctness.
+- `09-recording.sh`'s "file not found" message now points to the
+  template and suggests `cp recordings.conf.example recordings.conf`
+  as the starting step, instead of asking the user to write the format
+  from memory.
+
+No script logic changes beyond the updated message text.
+
 ## v3.0 — 2026
 
 **Recording feature redesigned: RAM-backed rolling buffer instead of

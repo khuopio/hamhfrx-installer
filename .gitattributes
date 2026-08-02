@@ -13,3 +13,4 @@ lib/*.sh text eol=lf
 
 # PDFs are binary — never let git attempt any line-ending conversion
 *.pdf binary
+*.example text eol=lf

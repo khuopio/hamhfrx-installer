@@ -1,0 +1,46 @@
+# recordings.conf.example — copy this to recordings.conf and edit it
+# with your real values. The real file (recordings.conf, no suffix) is
+# gitignored and never committed, since it names a real remote host and
+# path. This .example file has no real data in it, so it's safe to keep
+# in git as a reference template.
+#
+#     cp recordings.conf.example recordings.conf
+#     nano recordings.conf
+#
+# Format (pipe-delimited, one scheduled pull per line):
+#
+#     mountpoint | OnCalendar_expr | pull_minutes | user@host | remote_path
+#
+# mountpoint     Must match an existing entry in channels.conf, AND be
+#                listed here for 06-streaming.sh to actually feed the
+#                RAM ring buffer for it — being in channels.conf alone
+#                is not enough; a channel is only buffered if it's also
+#                listed in this file.
+#
+# OnCalendar_expr  Standard systemd calendar syntax — when this schedule
+#                  fires and pulls from the buffer. Test any expression
+#                  with: systemd-analyze calendar '<expr>'
+#                    *-*-* 14:00:00      -> every day at 14:00
+#                    Mon *-*-* 08:00:00  -> every Monday at 08:00
+#                    Sun *-*-* 20:30:00  -> every Sunday at 20:30
+#
+# pull_minutes   How far back into the RAM ring buffer to reach when
+#                this fires — NOT a live recording duration. Must not
+#                exceed the buffer's actual retention window
+#                (BUFFER_RETENTION_MIN in lib/common.sh, 60 minutes by
+#                default) — a request for more fails loudly at setup
+#                time rather than silently returning less than asked.
+#
+# user@host      SSH destination for the push. Must contain '@'.
+#                The public key shown during ./09-recording.sh setup
+#                must already be in this account's ~/.ssh/authorized_keys
+#                on the remote system.
+#
+# remote_path    Destination directory on that host.
+#
+# Comments: a '#' starts a comment anywhere on a line — whole-line or
+# trailing after real data — everything from it to end of line is
+# ignored. Blank lines are ignored too.
+
+# --- Example — replace with your real channel/schedule/destination ---
+# ch1 | Sun *-*-* 20:00:00 | 60 | archiveuser@backup.example.org | /data/hf-recordings

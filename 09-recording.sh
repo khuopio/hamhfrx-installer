@@ -40,14 +40,13 @@ if [ ! -f "$RECORDINGS_FILE" ]; then
 
    $RECORDINGS_FILE not found.
 
-   Create it (NOT tracked by git — see .gitignore) with one line per
-   scheduled recording:
+   A template is provided — copy it and edit with your real values
+   (the template itself has no real data, safe to keep in git; the
+   real recordings.conf is gitignored, same as hamhfrx.conf and
+   channels.conf):
 
-       mountpoint | OnCalendar_expr | duration_min | user@host | remote_path
-
-   Example — daily at 14:00, 60 minutes, channel 'ch1':
-
-       ch1 | *-*-* 14:00:00 | 60 | archiveuser@backup.example.org | /data/hf-recordings
+       cp $SCRIPT_DIR/recordings.conf.example $RECORDINGS_FILE
+       nano $RECORDINGS_FILE
 
    Then re-run: ./09-recording.sh
 
