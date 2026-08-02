@@ -36,6 +36,19 @@ designed but not yet scripted (baresip).
   script calls `sudo` internally per-command and refuses to run
   (`die`) if launched as root directly. Preserve this pattern in any
   new phase script.
+- **`systemctl enable --now` does not restart an already-running/active
+  unit — `start` is a no-op against something already active.** Any
+  phase script that rewrites a service's script/config and needs that
+  change to actually take effect must explicitly `restart`, not just
+  `enable --now`. This was a real production bug (v2.8): `06-streaming.sh`
+  correctly rewrote every channel's capture-device line, but the
+  already-running `ffmpeg` processes never picked up the change because
+  nothing restarted them — silently stale for hours, indistinguishable
+  from a real ongoing fault. `05-sdrangel-config.sh` avoids this
+  correctly by explicitly stopping `sdrangelsrv` earlier in the same
+  script, before its own `enable --now` call — that ordering is
+  load-bearing, don't remove the early stop without adding an explicit
+  restart in its place.
 
 ## Non-obvious technical facts (each one cost real debugging time)
 

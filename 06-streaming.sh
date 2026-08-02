@@ -117,7 +117,17 @@ done
 
 sudo systemctl daemon-reload
 for unit in "${DESIRED_UNITS[@]}"; do
-    sudo systemctl enable --now "$unit"
+    # NOTE: `enable --now` does NOT restart an already-running service —
+    # `start` is a no-op against an active unit. Without an explicit
+    # restart, re-running this script after changing a capture device,
+    # gain value, or anything else would silently leave the OLD process
+    # running with its OLD command line, oblivious to the updated files
+    # on disk. This was a real production bug (v2.8) — confirmed via a
+    # capture-device change that was correctly written to every script
+    # file but never actually took effect on already-running channels
+    # until a manual `systemctl restart`.
+    sudo systemctl enable "$unit"
+    sudo systemctl restart "$unit"
 done
 
 # --- Clean up services for channels/mountpoints no longer configured ------

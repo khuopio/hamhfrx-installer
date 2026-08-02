@@ -1,6 +1,6 @@
 # hamhfrx-installer
 
-**v2.7**
+**v2.8**
 
 Modular, idempotent installer for the multichannel HF SDR receiver build
 (Raspberry Pi 4 + SDRplay RSP2 Pro + SDRangel + Icecast streaming).

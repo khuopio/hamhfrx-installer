@@ -216,7 +216,11 @@ rm -rf /tmp/rec-scripts-staging
 sudo systemctl daemon-reload
 for i in "${!REC_MOUNT[@]}"; do
     safe="$(sanitize_name "${REC_MOUNT[$i]}")"
-    sudo systemctl enable --now "record-${safe}.timer"
+    # Same fix as 06-streaming.sh (v2.8): enable --now is a no-op on an
+    # already-active timer, so a changed OnCalendar schedule wouldn't
+    # take effect until an explicit restart.
+    sudo systemctl enable "record-${safe}.timer"
+    sudo systemctl restart "record-${safe}.timer"
 done
 
 echo

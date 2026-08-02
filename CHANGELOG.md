@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.8 — 2026
+
+**Production bug found and fixed: config/script changes silently didn't
+take effect on already-running channels.**
+
+While chasing what looked like a per-channel audio problem (see v2.7),
+the actual mechanism turned out to be broader and more fundamental:
+`06-streaming.sh` used `systemctl enable --now "$unit"` to bring each
+channel's stream service up — but `start` (which `--now` invokes) is a
+no-op against a service that's already active. Every time this script
+was re-run against already-running channels — including the v2.7
+`dsnoop`→`hw:` fix itself — the script *files* on disk were rewritten
+correctly, but the *already-running* `ffmpeg` processes kept executing
+with whatever command line they'd originally loaded, completely unaware
+anything had changed. This meant the v2.7 fix appeared not to work when
+tested, purely because the fix was never actually applied to the live
+processes — confirmed directly by comparing the deployed script content
+(correct) against the running process behavior (still exhibiting the
+old symptom) before finding the real cause.
+
+**Fixed:** `06-streaming.sh` and `09-recording.sh`'s timer setup now
+explicitly `enable` then `restart` every unit, rather than relying on
+`enable --now`. Checked every other `enable --now` call in the codebase
+for the same risk: `01-hardening.sh`'s fail2ban already has an explicit
+follow-up restart (safe), and `05-sdrangel-config.sh`'s `sdrangelsrv`
+call is preceded by an explicit `stop` earlier in the same script,
+guaranteeing the service is inactive by the time `enable --now` runs
+(also safe, but this ordering is now called out explicitly in
+`CLAUDE.md` as load-bearing — don't refactor it away without adding an
+equivalent explicit restart).
+
+**Immediate production impact:** if you hit the v2.7 symptom persisting
+after updating, the fix is a one-time manual restart of the affected
+services (`sudo systemctl restart stream-<mountpoint>`) — this release
+prevents it from recurring silently on future config changes.
+
 ## v2.7 — 2026
 
 **Production regression found and reverted: `dsnoop` capture caused
