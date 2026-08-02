@@ -141,13 +141,23 @@ for i in "${!CHAN_FREQ_KHZ[@]}"; do
         channel_type="AMDemod"
         # NOTE: AM has no sideband — a single symmetric bandwidth setting,
         # not the signed rfBandwidth/lowCutoff pair SSB uses. Field names
-        # below match SDRangel v7.22.7's AMDemodSettings; if you're on a
-        # different version, verify with:
-        #   curl -s http://127.0.0.1:8091/sdrangel/deviceset/0/channel/<n>/settings
-        # after this script creates the channel, the same way every other
-        # value in this build was verified against the live system rather
-        # than assumed from documentation.
-        settings_json="{\"channelType\": \"AMDemod\", \"AMDemodSettings\": {\"inputFrequencyOffset\": $offset_hz, \"rfBandwidth\": 6000, \"audioDeviceName\": \"$audio_device\", \"audioMute\": 0, \"title\": \"$title\"}}"
+        # confirmed against a live SDRangel v7.22.7 instance (checked via
+        # GET .../channel/<n>/settings after real provisioning, not just
+        # assumed from documentation).
+        #
+        # squelch: -100 is deliberate, not a default. SDRangel's own
+        # AMDemod default is -40 dB, which proved too aggressive in real
+        # production use — a genuinely strong signal (-57 dB
+        # channelPowerDB, comparable to some of our best SSB channels)
+        # was gated silent because -57 is weaker than the -40 threshold.
+        # -100 puts the threshold below any realistic noise floor here,
+        # matching how SSB channels behave (no squelch gating at all) —
+        # AM passes audio unconditionally too, same as everything else.
+        # If you ever want real squelch gating on a specific AM channel,
+        # do it deliberately and verify against that channel's actual
+        # channelPowerDB first, don't just trust SDRangel's built-in
+        # default.
+        settings_json="{\"channelType\": \"AMDemod\", \"AMDemodSettings\": {\"inputFrequencyOffset\": $offset_hz, \"rfBandwidth\": 6000, \"squelch\": -100, \"audioDeviceName\": \"$audio_device\", \"audioMute\": 0, \"title\": \"$title\"}}"
     else
         channel_type="SSBDemod"
         if [ "$mode" = "LSB" ]; then bw=-3000; lc=-300; else bw=3000; lc=300; fi

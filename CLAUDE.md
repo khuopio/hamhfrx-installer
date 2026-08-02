@@ -65,7 +65,18 @@ designed but not yet scripted (baresip).
 4. **LSB uses negative `rfBandwidth`/`lowCutoff`; USB uses positive;
    AM uses `AMDemodSettings` with a single symmetric `rfBandwidth`, no
    `lowCutoff` at all.** This is real branching logic in
-   `05-sdrangel-config.sh`, not a cosmetic difference.
+   `05-sdrangel-config.sh`, not a cosmetic difference. Confirmed against
+   a live SDRangel v7.22.7 instance with a real production AM signal
+   (previously only verified on paper — see CHANGELOG v2.9).
+4a. **AM's `squelch` field must be set explicitly (`-100` in this
+    codebase) — SDRangel's own default (`-40` dB) is too aggressive for
+    real-world use.** Found in production: a genuinely strong signal
+    (`-57` dB `channelPowerDB`, comparable to some of the best SSB
+    channels on this station) was gated completely silent because -57
+    is weaker than the -40 threshold. SSB channels have no squelch
+    gating at all in this codebase — AM's explicit `-100` matches that
+    same "always pass audio through" behavior rather than silently
+    inheriting a much stricter, untested default.
 5. **`POST .../channel` ignores settings embedded in the same request**
    in this SDRangel version — always create the channel bare, then
    `PATCH` its settings in a separate call.

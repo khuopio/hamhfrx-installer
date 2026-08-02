@@ -1,5 +1,36 @@
 # Changelog
 
+## v2.9 — 2026
+
+**Bugfix: AM channels were silently gated by an overly aggressive
+default squelch threshold.**
+
+The first AM channel actually deployed to production (XXXX kHz)
+appeared silent to listeners despite the full audio pipeline being
+confirmed healthy (v2.7/v2.8). Root cause: `05-sdrangel-config.sh` never
+explicitly set `AMDemodSettings.squelch`, so it silently inherited
+SDRangel's own default of `-40` dB. The real signal measured
+`channelPowerDB: -57` dB — objectively strong (comparable to some of
+this station's best SSB channels) but weaker than the -40 threshold, so
+squelch stayed permanently closed and no audio ever passed through, even
+though every other layer (SDRangel capture, ALSA loopback, ffmpeg
+encode, Icecast push) was working correctly.
+
+**Fixed:** AM channels now explicitly set `squelch: -100`, well below
+any realistic noise floor — matching the "always pass audio through"
+behavior SSB channels have had by default the whole time (they carry no
+squelch gating at all in this codebase).
+
+This is also the first time AM's field names/structure have been
+verified against a real production signal, not just documentation —
+`CLAUDE.md` updated accordingly.
+
+**If you already have an AM channel deployed on an earlier version**,
+this fix requires re-running `./05-sdrangel-config.sh` (which
+reprovisions the full device set) to take effect — it is not picked up
+by `./06-streaming.sh` alone, since squelch is an SDRangel device/channel
+setting, not part of the streaming layer.
+
 ## v2.8 — 2026
 
 **Production bug found and fixed: config/script changes silently didn't
