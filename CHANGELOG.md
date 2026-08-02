@@ -1,5 +1,74 @@
 # Changelog
 
+## v3.0 — 2026
+
+**Recording feature redesigned: RAM-backed rolling buffer instead of
+live on-demand capture, replacing the `dsnoop` approach abandoned in
+v2.7.**
+
+Previous design (v2.4–v2.9): a scheduled recording ran its own live
+`dsnoop`-based ALSA capture, competing with the always-on stream for the
+same device. `dsnoop` caused a real production regression (v2.7) and was
+reverted to `hw:` for streaming, leaving recording unable to run
+concurrently with a live channel at all.
+
+**New design:** a single `hw:` reader per channel (unchanged, the same
+proven-stable capture) now optionally fans out in software via ffmpeg's
+`tee` muxer — one branch to Icecast exactly as before, a second branch
+writing continuously-rotating timestamped segments into a RAM-backed
+`tmpfs` ring buffer. `09-recording.sh` no longer captures audio at all;
+it selects the buffered segments covering a requested window,
+concatenates them, and pushes the result. This eliminates the
+multi-reader ALSA problem entirely rather than trying to make `dsnoop`
+more robust.
+
+This also adds a genuinely new capability beyond what was there before:
+an **on-demand pull script** (`pull-recording.sh`) for grabbing "the
+last N minutes, right now" outside any schedule — not just fixed,
+pre-scheduled recording windows.
+
+**Design constraints, deliberate:**
+- Buffer retention is 60 minutes by default (`BUFFER_RETENTION_MIN` in
+  `lib/common.sh`), sized specifically to the actual stated need (light,
+  occasional use) rather than defaulting to something larger — RAM
+  usage is a real, hard-capped cost (`BUFFER_SIZE_MB`), not disk, and
+  oversizing it risks system-wide OOM, a worse failure mode than the SD
+  card wear it's replacing.
+- `recordings.conf` entries requesting more than the buffer's retention
+  window now fail loudly at setup time, rather than silently returning
+  a shorter recording than expected.
+- The `tee` output is entirely opt-in, per channel — only channels
+  listed in `recordings.conf` get it; every other channel's script is
+  byte-for-byte unchanged from before this release.
+
+**Testing performed before release** (real ffmpeg runs against synthetic
+audio, not just code review — see CLAUDE.md for full detail): confirmed
+`tee` requires explicit `-map 0:a`; confirmed segment/`strftime` timing
+only behaves correctly under real-time-paced input (a synthetic
+non-real-time test source caused a filename collision that doesn't occur
+with real live `hw:` capture); confirmed concatenating buffered segments
+must re-encode rather than stream-copy, to avoid the same class of dts
+warning that caused the v2.7 incident; confirmed the full pull-and-push
+flow including failure/retry behavior end-to-end; confirmed the
+retention cleanup logic against files of varying ages.
+
+**One gap, disclosed rather than hidden:** the `content_type` option
+inside the `tee` output bracket for the Icecast branch could only be
+tested against a local file in this sandbox, not a real `icecast://`
+URL — `content_type` is an HTTP/Icecast-protocol option and isn't valid
+against a bare file muxer, so that specific combination could not be
+verified end-to-end before release. It should be correct (documented
+ffmpeg behavior), but the first recording-enabled channel deployed
+should be verified carefully; a tested fallback (dropping `content_type`
+from that bracket) is documented in `CLAUDE.md` if needed.
+
+**Not yet updated in this release:** `hamhfrx-installer-guide.pdf`'s
+recordings.conf documentation (§7) still describes the previous
+live-capture semantics; the field format is unchanged but the
+description of what `duration_min` actually does should be revised to
+reflect the new pull-from-buffer behavior. Flagged here rather than left
+silently stale.
+
 ## v2.92 — 2026
 
 **Documentation-only update: `CLAUDE.md`'s "Current known state" section
@@ -32,40 +101,12 @@ which had named a real frequency while documenting the AM squelch fix.
 
 No script changes in this release.
 
-
-## v2.92 — 2026
-
-**Documentation-only update: `CLAUDE.md's "Current known state" section
-updated with the actual confirmed production configuration — and a real
-sanitization mistake caught and fixed in the same pass.**
-
-Replaces the generic "under active tuning" placeholder with the real,
-verified result of this week's stress testing: 6 simultaneous channels,
-a mix of LSB/USB/AM modes, confirmed stable at `SAMPLE_RATE_HZ=4800000`,
-following the resolution of the `dsnoop` regression (v2.7), the
-`enable --now` stale-process bug (v2.8), and the AM squelch default
-(v2.9). Verification performed and honestly documented as such: zero
-USB events, zero throttling, stable temperature, zero stream restarts,
-zero downstream timestamp corruption across roughly 15-20 minutes of
-checks -- explicitly noted as **not yet** including a genuine 30+ minute
-extended soak, so the state is recorded as "confirmed likely stable,"
-not overclaimed as fully proven.
-
-**Process note:** an earlier pass at this same update (briefly built as
-v2.91, never actually shipped) violated this project's own frequency-
-sanitization rule by listing the real production frequencies directly
-in `CLAUDE.md`. Caught before release, fixed here, and the underlying
-rule in `CLAUDE.md` itself strengthened with an explicit warning about
-this exact failure mode.
-
-No script changes in this release.
-
 ## v2.9 — 2026
 
 **Bugfix: AM channels were silently gated by an overly aggressive
 default squelch threshold.**
 
-The first AM channel actually deployed to production (XXXX kHz)
+The first AM channel actually deployed to production
 appeared silent to listeners despite the full audio pipeline being
 confirmed healthy (v2.7/v2.8). Root cause: `05-sdrangel-config.sh` never
 explicitly set `AMDemodSettings.squelch`, so it silently inherited

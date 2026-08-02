@@ -60,6 +60,18 @@ load_recordings "$RECORDINGS_FILE"
 validate_recordings_against_channels
 step "Loaded ${#REC_MOUNT[@]} scheduled recording(s), validated against $CHANNELS_FILE"
 
+# Every scheduled recording's requested duration must fit within the ring
+# buffer's actual retention window — a request for more than what's ever
+# buffered would silently return a shorter recording than expected.
+for i in "${!REC_MOUNT[@]}"; do
+    if [ "${REC_DURATION_MIN[$i]}" -gt "$BUFFER_RETENTION_MIN" ]; then
+        die "Recording for '${REC_MOUNT[$i]}' requests ${REC_DURATION_MIN[$i]} minutes, but the ring buffer only retains ${BUFFER_RETENTION_MIN} minutes (set in lib/common.sh). Either shorten the request or increase BUFFER_RETENTION_MIN and BUFFER_SIZE_MB together, deliberately."
+    fi
+done
+
+step "Recording ring buffer (RAM-backed, ${BUFFER_RETENTION_MIN}-minute retention)"
+ensure_recording_buffer
+
 # --- Dedicated SSH keypair, generated here, never elsewhere ---------------
 SSH_DIR="$INSTALL_ROOT/.ssh"
 SSH_KEY="$SSH_DIR/id_ed25519"
@@ -109,10 +121,13 @@ for target in "${REC_SSH_TARGET[@]}"; do
 done
 sudo chmod 644 "$KNOWN_HOSTS"
 
-# --- Per-recording capture+push script and systemd timer/service ---------
+# --- Per-recording pull-from-buffer + push script and systemd timer -------
+# This does NOT capture audio itself — 06-streaming.sh's tee output has
+# already been continuously writing this channel's audio into the ring
+# buffer (if this mountpoint is listed here in recordings.conf). This
+# script's only job is: select the buffered segments covering the
+# requested window, stitch them into one file, and push it.
 mkdir -p /tmp/rec-scripts-staging
-CAPTURE_DIR="$INSTALL_ROOT/recording/captures"
-sudo -u "$SERVICE_USER" mkdir -p "$CAPTURE_DIR"
 
 for i in "${!REC_MOUNT[@]}"; do
     mount="${REC_MOUNT[$i]}"
@@ -123,23 +138,6 @@ for i in "${!REC_MOUNT[@]}"; do
     safe="$(sanitize_name "$mount")"
     unit="record-${safe}"
 
-    # Resolve this mountpoint's position in channels.conf to find its
-    # loopback card — same lookup 06-streaming.sh uses.
-    pos=0
-    for j in "${!CHAN_MOUNT[@]}"; do
-        if [ "${CHAN_MOUNT[$j]}" = "$mount" ]; then pos=$((j + 1)); fi
-    done
-    card="$(loopback_card_name "$pos")"
-    # NOTE (as of v2.7): streaming (06-streaming.sh) now uses hw:
-    # (exclusive) instead of dsnoop, after dsnoop caused real production
-    # instability. This means a recording attempted while the matching
-    # channel's live stream is running will likely fail to acquire the
-    # device — hw:'s exclusive lock blocks dsnoop's shared access. Real
-    # concurrent operation needs a proper fan-out design; see CHANGELOG
-    # v2.7 and CLAUDE.md. Safe for now only when tested in isolation or
-    # against a channel with no active competing hw: reader.
-    capture="dsnoop:CARD=${card},DEV=1"
-
     step "Recording schedule for $mount -> $target:$remote_path [$unit]"
 
     SCRIPT_FILE="$INSTALL_ROOT/recording/${unit}.sh"
@@ -149,16 +147,18 @@ set -e
 SSH_KEY="$SSH_KEY"
 TARGET="$target"
 REMOTE_PATH="$remote_path"
-CAPTURE_DIR="$CAPTURE_DIR"
-DURATION_SEC=\$(( $duration * 60 ))
-TS=\$(date +%Y%m%d-%H%M%S)
-LOCAL_FILE="\$CAPTURE_DIR/${mount}-\${TS}.mp3"
+BUFFER_DIR="$BUFFER_DIR"
+PULL_DIR="\$BUFFER_DIR/pulls"
+MOUNT="$mount"
+DURATION_MIN=$duration
 
+mkdir -p "\$PULL_DIR"
 SCP_OPTS="-i \$SSH_KEY -o BatchMode=yes -o ConnectTimeout=15"
 
-# Retry anything left over from a previous failed push before starting
-# today's capture — self-healing the same way the live streams do.
-for f in "\$CAPTURE_DIR"/${mount}-*.mp3; do
+# Retry any previously-failed pushes before doing today's pull — same
+# self-healing philosophy as the live streams' StartLimitIntervalSec=0,
+# just implemented at the script level since this is a scheduled oneshot.
+for f in "\$PULL_DIR"/\${MOUNT}-*.mp3; do
     [ -e "\$f" ] || continue
     if scp \$SCP_OPTS "\$f" "\$TARGET:\$REMOTE_PATH/" 2>/dev/null; then
         rm -f "\$f"
@@ -166,28 +166,45 @@ for f in "\$CAPTURE_DIR"/${mount}-*.mp3; do
     fi
 done
 
-/usr/bin/ffmpeg -hide_banner -loglevel warning -t "\$DURATION_SEC" \\
-  -f alsa -i "$capture" \\
-  -ac 1 -channel_layout mono -ar 44100 \\
-  -codec:a libmp3lame -b:a 64k \\
-  "\$LOCAL_FILE"
+TS=\$(date +%Y%m%d-%H%M%S)
+CONCAT_LIST="\$PULL_DIR/.concat-\${MOUNT}-\${TS}.txt"
+PULLED_FILE="\$PULL_DIR/\${MOUNT}-\${TS}.mp3"
 
-if scp \$SCP_OPTS "\$LOCAL_FILE" "\$TARGET:\$REMOTE_PATH/"; then
-    rm -f "\$LOCAL_FILE"
-    echo "delivered: \$LOCAL_FILE"
+> "\$CONCAT_LIST"
+find "\$BUFFER_DIR" -maxdepth 1 -name "\${MOUNT}-*.mp3" -newermt "-\${DURATION_MIN} minutes" | sort | while IFS= read -r f; do
+    echo "file '\$f'" >> "\$CONCAT_LIST"
+done
+
+if [ ! -s "\$CONCAT_LIST" ]; then
+    echo "no buffered segments found for \$MOUNT in the last \${DURATION_MIN} minutes — nothing to pull" >&2
+    rm -f "\$CONCAT_LIST"
+    exit 0
+fi
+
+# Re-encode, not stream-copy — each buffered segment resets its own
+# timestamps, so a straight -c copy concat produces non-monotonic dts
+# warnings. Confirmed clean with re-encoding during testing before this
+# shipped; do not "optimize" this back to -c copy.
+ffmpeg -hide_banner -loglevel warning -f concat -safe 0 -i "\$CONCAT_LIST" \\
+  -codec:a libmp3lame -b:a 64k "\$PULLED_FILE"
+rm -f "\$CONCAT_LIST"
+
+if scp \$SCP_OPTS "\$PULLED_FILE" "\$TARGET:\$REMOTE_PATH/"; then
+    rm -f "\$PULLED_FILE"
+    echo "delivered: \$PULLED_FILE"
 else
-    echo "transfer failed — \$LOCAL_FILE kept locally, will retry on next scheduled run" >&2
+    echo "transfer failed — \$PULLED_FILE kept locally, will retry on next run" >&2
     exit 1
 fi
 RECEOF
     sudo cp "/tmp/rec-scripts-staging/${unit}.sh" "$SCRIPT_FILE"
     sudo chown "$SERVICE_USER:$SERVICE_USER" "$SCRIPT_FILE"
     sudo chmod +x "$SCRIPT_FILE"
-    ok "capture+push script written"
+    ok "pull+push script written"
 
     sudo tee "/etc/systemd/system/${unit}.service" >/dev/null <<EOF
 [Unit]
-Description=Scheduled recording - ${mount}
+Description=Scheduled recording pull - ${mount}
 After=network-online.target sdrangelsrv.service
 Wants=network-online.target
 Requires=sdrangelsrv.service
@@ -200,7 +217,7 @@ EOF
 
     sudo tee "/etc/systemd/system/${unit}.timer" >/dev/null <<EOF
 [Unit]
-Description=Timer for scheduled recording - ${mount}
+Description=Timer for scheduled recording pull - ${mount}
 
 [Timer]
 OnCalendar=${schedule}
@@ -213,6 +230,95 @@ EOF
 done
 rm -rf /tmp/rec-scripts-staging
 
+# --- Retention cleanup: delete buffer segments older than the window ------
+step "Buffer retention cleanup (deletes segments older than ${BUFFER_RETENTION_MIN} minutes, every 5 minutes)"
+CLEANUP_SCRIPT="$INSTALL_ROOT/bin/buffer-cleanup.sh"
+cat > /tmp/buffer-cleanup.sh <<CLEANUPEOF
+#!/bin/bash
+find "$BUFFER_DIR" -maxdepth 1 -name '*.mp3' -mmin +${BUFFER_RETENTION_MIN} -delete
+CLEANUPEOF
+sudo cp /tmp/buffer-cleanup.sh "$CLEANUP_SCRIPT"
+rm -f /tmp/buffer-cleanup.sh
+sudo chown "$SERVICE_USER:$SERVICE_USER" "$CLEANUP_SCRIPT"
+sudo chmod +x "$CLEANUP_SCRIPT"
+
+sudo tee /etc/systemd/system/buffer-cleanup.service >/dev/null <<EOF
+[Unit]
+Description=Delete recording ring buffer segments past retention window
+
+[Service]
+Type=oneshot
+User=$SERVICE_USER
+ExecStart=$CLEANUP_SCRIPT
+EOF
+
+sudo tee /etc/systemd/system/buffer-cleanup.timer >/dev/null <<'EOF'
+[Unit]
+Description=Timer for recording ring buffer retention cleanup
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+ok "buffer retention cleanup timer written (runs every 5 minutes)"
+
+# --- On-demand pull, for ad-hoc "grab the last N minutes right now" -------
+step "On-demand pull script (not tied to any schedule)"
+ONDEMAND_SCRIPT="$INSTALL_ROOT/bin/pull-recording.sh"
+cat > /tmp/pull-recording.sh <<PULLEOF
+#!/bin/bash
+# Usage: pull-recording.sh <mountpoint> <minutes> <user@host> <remote_path>
+# Grabs whatever is currently in the ring buffer for the requested
+# channel and window, right now — independent of any recordings.conf
+# schedule. Useful for "something just happened, grab the last hour."
+set -e
+MOUNT="\$1"; MINUTES="\$2"; TARGET="\$3"; REMOTE_PATH="\$4"
+[ -z "\$MOUNT" ] || [ -z "\$MINUTES" ] || [ -z "\$TARGET" ] || [ -z "\$REMOTE_PATH" ] && {
+    echo "Usage: \$0 <mountpoint> <minutes> <user@host> <remote_path>" >&2
+    exit 1
+}
+BUFFER_DIR="$BUFFER_DIR"
+SSH_KEY="$SSH_KEY"
+PULL_DIR="\$BUFFER_DIR/pulls"
+mkdir -p "\$PULL_DIR"
+SCP_OPTS="-i \$SSH_KEY -o BatchMode=yes -o ConnectTimeout=15"
+
+TS=\$(date +%Y%m%d-%H%M%S)
+CONCAT_LIST="\$PULL_DIR/.concat-\${MOUNT}-\${TS}.txt"
+PULLED_FILE="\$PULL_DIR/\${MOUNT}-\${TS}.mp3"
+
+> "\$CONCAT_LIST"
+find "\$BUFFER_DIR" -maxdepth 1 -name "\${MOUNT}-*.mp3" -newermt "-\${MINUTES} minutes" | sort | while IFS= read -r f; do
+    echo "file '\$f'" >> "\$CONCAT_LIST"
+done
+
+if [ ! -s "\$CONCAT_LIST" ]; then
+    echo "no buffered segments found for \$MOUNT in the last \${MINUTES} minutes" >&2
+    rm -f "\$CONCAT_LIST"
+    exit 1
+fi
+
+ffmpeg -hide_banner -loglevel warning -f concat -safe 0 -i "\$CONCAT_LIST" \\
+  -codec:a libmp3lame -b:a 64k "\$PULLED_FILE"
+rm -f "\$CONCAT_LIST"
+
+if scp \$SCP_OPTS "\$PULLED_FILE" "\$TARGET:\$REMOTE_PATH/"; then
+    rm -f "\$PULLED_FILE"
+    echo "delivered: \$PULLED_FILE"
+else
+    echo "transfer failed — \$PULLED_FILE kept at \$PULLED_FILE, retry manually" >&2
+    exit 1
+fi
+PULLEOF
+sudo cp /tmp/pull-recording.sh "$ONDEMAND_SCRIPT"
+rm -f /tmp/pull-recording.sh
+sudo chown "$SERVICE_USER:$SERVICE_USER" "$ONDEMAND_SCRIPT"
+sudo chmod +x "$ONDEMAND_SCRIPT"
+ok "on-demand pull script written: $ONDEMAND_SCRIPT"
+
 sudo systemctl daemon-reload
 for i in "${!REC_MOUNT[@]}"; do
     safe="$(sanitize_name "${REC_MOUNT[$i]}")"
@@ -222,11 +328,19 @@ for i in "${!REC_MOUNT[@]}"; do
     sudo systemctl enable "record-${safe}.timer"
     sudo systemctl restart "record-${safe}.timer"
 done
+sudo systemctl enable buffer-cleanup.timer
+sudo systemctl restart buffer-cleanup.timer
 
 echo
 echo "=== Phase 9 complete ==="
+echo "IMPORTANT — re-run ./06-streaming.sh now if you haven't already since"
+echo "editing recordings.conf: only channels listed here get the ring"
+echo "buffer, and 06-streaming.sh is what actually feeds it."
+echo
 echo "List scheduled recordings and next run times with:"
-echo "    systemctl list-timers 'record-*'"
+echo "    systemctl list-timers 'record-*' 'buffer-cleanup*'"
 echo "Test one immediately without waiting for its schedule:"
 echo "    sudo systemctl start record-<mountpoint>.service"
 echo "    sudo journalctl -u record-<mountpoint>.service -f"
+echo "Grab an ad-hoc window any time, outside any schedule:"
+echo "    sudo -u $SERVICE_USER $ONDEMAND_SCRIPT <mountpoint> <minutes> <user@host> <remote_path>"

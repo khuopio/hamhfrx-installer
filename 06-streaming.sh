@@ -36,6 +36,31 @@ load_channels "$CHANNELS_FILE"
 N="${#CHAN_FREQ_KHZ[@]}"
 step "Loaded $N channel(s) from $CHANNELS_FILE"
 
+# --- Optional: which channels (if any) feed the recording ring buffer -----
+# recordings.conf is entirely optional (see 09-recording.sh) — if it
+# doesn't exist, no channel gets the extra tee output, and every script
+# below is byte-for-byte what it's always been. Only channels explicitly
+# listed get the additional (tested, opt-in) tee branch.
+RECORDED_MOUNTS=()
+if [ -f "$SCRIPT_DIR/recordings.conf" ]; then
+    source "$SCRIPT_DIR/lib/recordings.sh"
+    load_recordings "$SCRIPT_DIR/recordings.conf"
+    validate_recordings_against_channels
+    RECORDED_MOUNTS=("${REC_MOUNT[@]}")
+    step "recordings.conf found — ${#RECORDED_MOUNTS[@]} channel(s) will also feed the ring buffer"
+    ensure_recording_buffer
+fi
+
+is_recorded_mount() {
+    local target="$1"
+    [ "${#RECORDED_MOUNTS[@]}" -eq 0 ] && return 1
+    local m
+    for m in "${RECORDED_MOUNTS[@]}"; do
+        [ "$m" = "$target" ] && return 0
+    done
+    return 1
+}
+
 sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_' '-'; }
 
 DESIRED_UNITS=()
@@ -80,7 +105,30 @@ EOF
     fi
 
     SCRIPT_FILE="$INSTALL_ROOT/streaming/${unit}.sh"
-    sudo -u "$SERVICE_USER" tee "$SCRIPT_FILE" >/dev/null <<SCRIPTINNEREOF
+
+    if is_recorded_mount "$mount"; then
+        # This channel feeds both Icecast AND the RAM ring buffer, via a
+        # single ffmpeg process using the tee muxer — deliberately NOT a
+        # second reader on the capture device (that was dsnoop, and it
+        # broke production once already; see CLAUDE.md). -map 0:a is
+        # required for tee to route the encoded stream to both outputs —
+        # without it, tee fails immediately with "Output file does not
+        # contain any stream" (confirmed empirically before shipping).
+        sudo -u "$SERVICE_USER" tee "$SCRIPT_FILE" >/dev/null <<SCRIPTINNEREOF
+#!/bin/bash
+set -e
+source $ENV_FILE
+
+exec stdbuf -oL -eL /usr/bin/ffmpeg -hide_banner -loglevel warning \\
+  -f alsa -i $capture \\
+  ${GAIN_FILTER}-ac 1 -channel_layout mono -ar 44100 \\
+  -codec:a libmp3lame -b:a 64k -map 0:a \\
+  -f tee "[f=mp3:content_type=audio/mpeg]\$ICECAST_URL|[f=segment:segment_time=${BUFFER_SEGMENT_SEC}:strftime=1:reset_timestamps=1]${BUFFER_DIR}/${mount}-%Y%m%d-%H%M%S.mp3" \\
+  2>&1 | sed -u -E 's#(source:)[^@]*(@)#\\1REDACTED\\2#'
+SCRIPTINNEREOF
+        ok "credentials + script written (gain: ${gain} dB, WITH ring buffer — verify this channel's first startup carefully)"
+    else
+        sudo -u "$SERVICE_USER" tee "$SCRIPT_FILE" >/dev/null <<SCRIPTINNEREOF
 #!/bin/bash
 set -e
 source $ENV_FILE
@@ -91,8 +139,9 @@ exec stdbuf -oL -eL /usr/bin/ffmpeg -hide_banner -loglevel warning \\
   -codec:a libmp3lame -b:a 64k -content_type audio/mpeg \\
   -f mp3 "\$ICECAST_URL" 2>&1 | sed -u -E 's#(source:)[^@]*(@)#\\1REDACTED\\2#'
 SCRIPTINNEREOF
+        ok "credentials + script written (gain: ${gain} dB)"
+    fi
     sudo chmod +x "$SCRIPT_FILE"
-    ok "credentials + script written (gain: ${gain} dB)"
 
     sudo tee "/etc/systemd/system/${unit}.service" >/dev/null <<EOF
 [Unit]

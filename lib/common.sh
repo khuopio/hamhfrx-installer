@@ -38,3 +38,28 @@ confirm() {
     read -r -p "$prompt [y/N] " reply
     [[ "$reply" =~ ^[Yy]$ ]]
 }
+
+# --- Optional recording ring buffer (RAM-backed, tmpfs) --------------------
+# Only relevant if at least one channel is listed in recordings.conf.
+# Hard-capped size — this is real RAM, not disk. A misconfiguration here
+# should fail loudly (writes stop, ENOSPC) rather than threaten system
+# stability the way an unbounded buffer could.
+BUFFER_DIR="${INSTALL_ROOT:-/opt/hamhfrx1}/recording/buffer"
+BUFFER_SIZE_MB="${BUFFER_SIZE_MB:-256}"
+BUFFER_RETENTION_MIN="${BUFFER_RETENTION_MIN:-60}"
+BUFFER_SEGMENT_SEC="${BUFFER_SEGMENT_SEC:-300}"
+
+ensure_recording_buffer() {
+    sudo mkdir -p "$BUFFER_DIR"
+    if ! grep -q "$BUFFER_DIR" /etc/fstab 2>/dev/null; then
+        echo "tmpfs $BUFFER_DIR tmpfs rw,nosuid,nodev,noexec,size=${BUFFER_SIZE_MB}m,mode=0750 0 0" | sudo tee -a /etc/fstab >/dev/null
+        ok "added recording ring buffer to /etc/fstab (tmpfs, ${BUFFER_SIZE_MB}MB hard cap)"
+    fi
+    if ! mountpoint -q "$BUFFER_DIR"; then
+        sudo mount "$BUFFER_DIR"
+        ok "recording ring buffer mounted (RAM-backed — never touches the SD card)"
+    else
+        skip "recording ring buffer already mounted"
+    fi
+    sudo chown "$SERVICE_USER:$SERVICE_USER" "$BUFFER_DIR"
+}
