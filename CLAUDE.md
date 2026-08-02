@@ -31,7 +31,15 @@ designed but not yet scripted (baresip).
 - **All documentation/example content must use the fictitious worked
   example (3600/7100/4700 kHz, `sdr-station-1` hostname), never real
   production values.** This was deliberately sanitized in v2.2 — don't
-  reintroduce real values while "improving" an example.
+  reintroduce real values while "improving" an example. **This rule
+  was actually violated once (v2.91), by pasting real production
+  frequencies into this file's own "Current known state" section** —
+  that section is precisely where this mistake is most tempting, since
+  it's meant to track live, real facts. When updating "Current known
+  state," describe configuration structurally (channel count, sample
+  rate, mode mix, verification results) and never list actual
+  frequencies or mountpoints — point to the live `channels.conf` on the
+  station instead of ever reproducing its contents here.
 - **No script is invoked with an external `sudo` prefix.** Each phase
   script calls `sudo` internally per-command and refuses to run
   (`die`) if launched as root directly. Preserve this pattern in any
@@ -150,10 +158,31 @@ designed but not yet scripted (baresip).
 
 ## Current known state (update this section as things change)
 
-- Production channel count/sample-rate: under active tuning as of the
-  last session — see CHANGELOG and git log for the most recent change,
-  don't assume the shipped worked-example values reflect what's
-  actually running.
+- **Production configuration, confirmed stable as of v2.92**: 6
+  simultaneous channels at `SAMPLE_RATE_HZ=4800000` (4.8 MS/s), a mix of
+  LSB, USB, and AM modes. The real, currently-deployed `channels.conf`
+  is never reproduced here — check the live file on the station itself
+  for actual frequencies/mountpoints, never in this document or any
+  commit.
+- **Verification performed**: zero USB disconnect/reconnect events,
+  `vcgencmd get_throttled` = `0x0`, temperature ~58°C, zero systemd
+  restarts across all six `stream-*` services, zero
+  "backward in time"/non-monotonic-dts errors on any channel over
+  multiple checks spanning roughly 15–20 minutes. `sdrangelsrv` itself
+  showed a low, non-zero overflow rate (~11/min) with **no** downstream
+  corruption reaching any stream — read as acceptable background noise
+  at this channel count, not a fault.
+- **Not yet done**: a genuine extended soak (30+ minutes continuous) to
+  rule out slower-onset issues (thermal creep, memory pressure, buffer
+  drift) that a 15–20 minute window can't catch. Treat 6 channels as
+  "confirmed likely stable," not "proven under all conditions," until
+  that longer run has actually been observed.
+- One channel was previously dropped once already this week during
+  5-channel testing (unrelated cause — see CHANGELOG v2.7/v2.8, the
+  `dsnoop` and `enable --now` bugs, now fixed) before being restored at
+  6 channels here. If a channel is ever pulled again for a new
+  stability concern, update this section immediately — don't let it
+  silently go stale the way the previous placeholder text did.
 - baresip/SIP phase: designed in the build manual, not yet scripted.
 - Cloudflare Tunnel phase: not yet scripted; intentionally deferred to
   ask which access model fits rather than assuming one.

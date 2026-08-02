@@ -1,5 +1,65 @@
 # Changelog
 
+## v2.92 — 2026
+
+**Documentation-only update: `CLAUDE.md`'s "Current known state" section
+updated with the actual confirmed production configuration — and a real
+sanitization mistake caught and fixed in the same pass.**
+
+Replaces the generic "under active tuning" placeholder with the real,
+verified result of this week's stress testing: 6 simultaneous channels,
+a mix of LSB/USB/AM modes, confirmed stable at `SAMPLE_RATE_HZ=4800000`,
+following the resolution of the `dsnoop` regression (v2.7), the
+`enable --now` stale-process bug (v2.8), and the AM squelch default
+(v2.9). Verification performed and honestly documented as such: zero
+USB events, zero throttling, stable temperature, zero stream restarts,
+zero downstream timestamp corruption across roughly 15–20 minutes of
+checks — explicitly noted as **not yet** including a genuine 30+ minute
+extended soak, so the state is recorded as "confirmed likely stable,"
+not overclaimed as fully proven.
+
+**Process note:** an earlier pass at this same update (briefly built as
+v2.91, never actually shipped) violated this project's own frequency-
+sanitization rule by listing the real production frequencies directly
+in `CLAUDE.md`. Caught before release, fixed here, and the underlying
+rule in `CLAUDE.md` itself strengthened with an explicit warning about
+this exact failure mode — the "Current known state" section is
+precisely where this mistake is most tempting, since it's meant to
+track live, real facts, which makes it easy to forget the same
+sanitization discipline applied everywhere else in this project. Also
+found and fixed the same leak in this file's own v2.9 entry (below),
+which had named a real frequency while documenting the AM squelch fix.
+
+No script changes in this release.
+
+
+## v2.92 — 2026
+
+**Documentation-only update: `CLAUDE.md's "Current known state" section
+updated with the actual confirmed production configuration — and a real
+sanitization mistake caught and fixed in the same pass.**
+
+Replaces the generic "under active tuning" placeholder with the real,
+verified result of this week's stress testing: 6 simultaneous channels,
+a mix of LSB/USB/AM modes, confirmed stable at `SAMPLE_RATE_HZ=4800000`,
+following the resolution of the `dsnoop` regression (v2.7), the
+`enable --now` stale-process bug (v2.8), and the AM squelch default
+(v2.9). Verification performed and honestly documented as such: zero
+USB events, zero throttling, stable temperature, zero stream restarts,
+zero downstream timestamp corruption across roughly 15-20 minutes of
+checks -- explicitly noted as **not yet** including a genuine 30+ minute
+extended soak, so the state is recorded as "confirmed likely stable,"
+not overclaimed as fully proven.
+
+**Process note:** an earlier pass at this same update (briefly built as
+v2.91, never actually shipped) violated this project's own frequency-
+sanitization rule by listing the real production frequencies directly
+in `CLAUDE.md`. Caught before release, fixed here, and the underlying
+rule in `CLAUDE.md` itself strengthened with an explicit warning about
+this exact failure mode.
+
+No script changes in this release.
+
 ## v2.9 — 2026
 
 **Bugfix: AM channels were silently gated by an overly aggressive
